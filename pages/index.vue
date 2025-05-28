@@ -1,11 +1,47 @@
 <script setup lang="ts">
 import logo from '@/assets/image/logo-4.png';
 import LoginForm from '~/components/form/LoginForm.vue';
+import SelectOfficeForm from '~/components/form/SelectOfficeForm.vue';
+import type { LoginFormType } from '~/types/authType';
 import { ecosystemModules } from '~/mock/ecosystemModules';
+import { loginBMS } from '~/api/authAPI';
+import { ElNotification } from 'element-plus'
 function goToDetail(item: { route?: string }) {
     if (item.route) window.open(item.route, '_blank')
 }
-
+const showLoginForm = ref(false)
+const showSelectOfficeForm = ref(true)
+const handleLogin = async (payload: LoginFormType) => {
+    console.log('Login payload:', payload)
+    showLoginForm.value = false
+    showSelectOfficeForm.value = true
+    try {
+        const response = await loginBMS(payload)
+        if (response.success) {
+            ElMessage.success('Đăng nhập thành công!')
+        } else {
+            ElMessage.error(response.message || 'Đăng nhập thất bại!')
+        }
+    } catch (err) {
+        ElNotification({
+            title: 'Lỗi hệ thống',
+            message: 'This is a primary message',
+            type: 'error',
+        })
+        console.error('Login error:', err)
+    }
+}
+const handleLogout = () => {
+    showLoginForm.value = true
+    showSelectOfficeForm.value = false
+    ElNotification({
+        message: 'Đăng xuất thành công!',
+        type: 'success',
+    })
+}
+const handleStart = () => {
+    console.log('Start working with selected office')
+}
 </script>
 <template>
     <el-row>
@@ -20,7 +56,8 @@ function goToDetail(item: { route?: string }) {
                         Chúc bạn có một ngày làm việc hiệu quả!
                     </div>
                     <div class="mt-10">
-                        <LoginForm />
+                        <LoginForm v-if="showLoginForm" @submit="handleLogin" />
+                        <SelectOfficeForm v-if="showSelectOfficeForm" @logout="handleLogout" @start="handleStart" />
                     </div>
 
                     <div class="mt-5 text-center">

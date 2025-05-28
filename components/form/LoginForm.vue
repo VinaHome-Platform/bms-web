@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import type { FormInstance, FormRules } from 'element-plus';
-import { loginBMS } from '~/api/authAPI';
-import type { LoginForm } from '~/types/authType';
+import type { LoginFormType } from '~/types/authType';
+
+const emit = defineEmits<{
+  (e: 'submit', payload: LoginFormType): void
+}>()
 
 const ruleFormRef = ref<FormInstance>()
-const ruleForm = reactive<LoginForm>({
+const ruleForm = reactive<LoginFormType>({
     username: '',
     password: ''
 })
-const rules = ref<FormRules<LoginForm>>({
+const rules = ref<FormRules<LoginFormType>>({
     username: [
         { required: true, message: 'Vui lòng nhập tên đăng nhập', trigger: 'blur' },
         { min: 3, message: 'Tên đăng nhập không hợp lệ', trigger: 'blur' }
@@ -18,30 +21,15 @@ const rules = ref<FormRules<LoginForm>>({
         { min: 6, message: 'Mật khẩu không hợp lệ', trigger: 'blur' }
     ]
 })
-const submitForm = async (formEl: FormInstance | undefined) => {
-    if (!formEl) return
-    await formEl.validate(async (valid, fields) => {
-        if (valid) {
-            console.log('submit!')
-            console.log('ruleForm', ruleForm)
-            try {
-                const response = await loginBMS(ruleForm)
-                if (response.success) {
-                    console.log('Login success:', response.result)
-                    // Ví dụ: chuyển trang, lưu token,...
-                } else {
-                    console.log('Login failed:', response.message)
-                    // Hiển thị lỗi backend trả về
-                }
-            } catch (error) {
-                console.error('API error:', error)
-                // Hiển thị lỗi mạng hoặc lỗi khác
-            }
-        } else {
-            console.log('error submit!', fields)
-        }
-    })
+const validateAndSubmit = async () => {
+  if (!ruleFormRef.value) return
+  await ruleFormRef.value.validate((valid) => {
+    if (valid) {
+      emit('submit', { ...ruleForm })
+    }
+  })
 }
+
 </script>
 <template>
     <el-form ref="ruleFormRef" :model="ruleForm" :rules="rules" label-width="auto">
@@ -58,7 +46,7 @@ const submitForm = async (formEl: FormInstance | undefined) => {
             <el-input v-model="ruleForm.password" type="password" placeholder="Nhập mật khẩu" size="large" />
         </el-form-item>
         <el-form-item>
-            <el-button type="primary" class="w-full mt-5" size="large" @click="submitForm(ruleFormRef)">
+            <el-button type="primary" class="w-full mt-5" size="large" @click="validateAndSubmit">
                 <span class="text-base font-semibold tracking-wide">Đăng nhập</span>
             </el-button>
         </el-form-item>
