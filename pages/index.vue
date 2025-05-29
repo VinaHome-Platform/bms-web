@@ -6,26 +6,33 @@ import type { LoginFormType } from '~/types/authType';
 import { ecosystemModules } from '~/mock/ecosystemModules';
 import { loginBMS } from '~/api/authAPI';
 import { ElNotification } from 'element-plus'
+const authStore = useAuthStore()
 function goToDetail(item: { route?: string }) {
     if (item.route) window.open(item.route, '_blank')
 }
-const showLoginForm = ref(false)
-const showSelectOfficeForm = ref(true)
+const showLoginForm = ref(true)
+const showSelectOfficeForm = ref(false)
 const handleLogin = async (payload: LoginFormType) => {
-    console.log('Login payload:', payload)
-    showLoginForm.value = false
-    showSelectOfficeForm.value = true
     try {
         const response = await loginBMS(payload)
         if (response.success) {
-            ElMessage.success('Đăng nhập thành công!')
+            ElNotification({
+                message: h('p', { style: 'color: teal' }, 'Đăng nhập thành công!'),
+                type: 'success',
+            })
+            showLoginForm.value = false
+            showSelectOfficeForm.value = true
+            console.log('Login successful:', response.result)
+            
         } else {
-            ElMessage.error(response.message || 'Đăng nhập thất bại!')
+            ElNotification({
+                message: h('p', { style: 'color: teal' }, response.message || 'Đăng nhập thất bại!'),
+                type: 'error',
+            })
         }
     } catch (err) {
         ElNotification({
-            title: 'Lỗi hệ thống',
-            message: 'This is a primary message',
+            message: h('p', { style: 'color: teal' }, 'Lỗi đăng nhập, vui lòng thử lại sau!'),
             type: 'error',
         })
         console.error('Login error:', err)
@@ -35,7 +42,7 @@ const handleLogout = () => {
     showLoginForm.value = true
     showSelectOfficeForm.value = false
     ElNotification({
-        message: 'Đăng xuất thành công!',
+        message: h('p', { style: 'color: teal' }, 'Đăng xuất thành công!'),
         type: 'success',
     })
 }

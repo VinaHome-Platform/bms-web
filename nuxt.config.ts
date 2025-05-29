@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineNuxtConfig({
   compatibilityDate: '2025-05-15',
   devtools: { enabled: true },
-  modules: ['@nuxt/eslint', '@nuxt/fonts', '@element-plus/nuxt'],
+  modules: ['@nuxt/eslint', '@nuxt/fonts', '@element-plus/nuxt', '@pinia/nuxt'],
   css: ['@/assets/css/main.css'],
   vite: {
     plugins: [
