@@ -16,3 +16,20 @@ export const loginBMS = async (data: LoginFormType): Promise<ApiResponse<Account
     throw error;
   }
 };
+
+export const testToken = async(): Promise<ApiResponse<any>> => {
+  const config = useRuntimeConfig();
+  const apiGateWay = config.public.apiGateWay;
+  const cookie = useCookie('auth_token');
+  try {
+    return await $fetch<ApiResponse<any>>(`${apiGateWay}/v1/account/test`, {
+      method: "GET",
+      headers: {
+        'Authorization': `Bearer ${cookie.value}`
+      }
+    });
+  } catch (error) {
+    console.error('API error:', error);
+    throw error;
+  }
+}

@@ -1,29 +1,39 @@
 <script setup lang="ts">
 import logo from '@/assets/image/logo-4.png';
 import LoginForm from '~/components/form/LoginForm.vue';
-import SelectOfficeForm from '~/components/form/SelectOfficeForm.vue';
 import type { LoginFormType } from '~/types/authType';
 import { ecosystemModules } from '~/mock/ecosystemModules';
 import { loginBMS } from '~/api/authAPI';
 import { ElNotification } from 'element-plus'
+import type { UserInfoType } from '~/types/accountType';
+definePageMeta({
+    middleware: ['guest'],
+    layout: false,
+})
+const cookie_access_token = useCookie('access_token');
 const authStore = useAuthStore()
-function goToDetail(item: { route?: string }) {
-    if (item.route) window.open(item.route, '_blank')
-}
-const showLoginForm = ref(true)
-const showSelectOfficeForm = ref(false)
 const handleLogin = async (payload: LoginFormType) => {
     try {
         const response = await loginBMS(payload)
-        if (response.success) {
+        if (response.success && response.result) {
+
             ElNotification({
                 message: h('p', { style: 'color: teal' }, 'Đăng nhập thành công!'),
                 type: 'success',
             })
-            showLoginForm.value = false
-            showSelectOfficeForm.value = true
+            cookie_access_token.value = response.result.access_token;
+            const user: UserInfoType = {
+                id: response.result.id,
+                username: response.result.username,
+                full_name: response.result.full_name,
+                company_id: response.result.company_id,
+                role: response.result.role,
+                refresh_token: response.result.refresh_token,
+                expires_in: response.result.expires_in,
+            }
+            authStore.setUserInfo(user)
             console.log('Login successful:', response.result)
-            
+            navigateTo('/room-work')
         } else {
             ElNotification({
                 message: h('p', { style: 'color: teal' }, response.message || 'Đăng nhập thất bại!'),
@@ -38,16 +48,9 @@ const handleLogin = async (payload: LoginFormType) => {
         console.error('Login error:', err)
     }
 }
-const handleLogout = () => {
-    showLoginForm.value = true
-    showSelectOfficeForm.value = false
-    ElNotification({
-        message: h('p', { style: 'color: teal' }, 'Đăng xuất thành công!'),
-        type: 'success',
-    })
-}
-const handleStart = () => {
-    console.log('Start working with selected office')
+
+function goToDetail(item: { route?: string }) {
+    if (item.route) window.open(item.route, '_blank')
 }
 </script>
 <template>
@@ -63,8 +66,7 @@ const handleStart = () => {
                         Chúc bạn có một ngày làm việc hiệu quả!
                     </div>
                     <div class="mt-10">
-                        <LoginForm v-if="showLoginForm" @submit="handleLogin" />
-                        <SelectOfficeForm v-if="showSelectOfficeForm" @logout="handleLogout" @start="handleStart" />
+                        <LoginForm @submit="handleLogin" />
                     </div>
 
                     <div class="mt-5 text-center">

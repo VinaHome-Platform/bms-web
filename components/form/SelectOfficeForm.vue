@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import type { AuthStoreType } from '~/types/authType';
+
+defineProps<{
+  user: AuthStoreType
+}>()
 const value = ref('')
 
 const options = [
@@ -32,7 +37,7 @@ const handleStart = () => emit('start', value.value)
     <div class="bg-white w-full max-w-lg space-y-4 mb-10">
       <div class="text-center">
         <h2 class="text-xl font-semibold text-blue-800">Xin chào,</h2>
-        <p class="text-xl font-bold text-blue-900 mt-1">Đặng Tuấn Thành</p>
+        <p class="text-xl font-bold text-blue-900 mt-1"></p>
       </div>
 
       <div>
