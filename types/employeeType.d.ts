@@ -6,7 +6,7 @@ export interface EmployeeType  {
     full_name: string | null;
     email: string | null;
     address: string | null;
-    date_of_birth: Date;
+    date_of_birth: Date | null;
     gender: string;
     status: boolean;
     role: string;

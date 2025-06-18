@@ -5,7 +5,9 @@ import {
 import type { DrawerProps, FormInstance, FormRules } from 'element-plus'
 import type { EmployeeType } from '~/types/employeeType';
 import InputText from '~/components/ui/inputText.vue';
-import { ro } from 'element-plus/es/locale/index.mjs';
+import InputDate from '~/components/ui/inputDate.vue';
+import Select from '~/components/ui/select.vue';
+import { createEmployee, getListEmployeeByCompany, updateEmployee } from '~/api/employeeAPI';
 definePageMeta({
     layout: 'default',
 })
@@ -34,7 +36,7 @@ const ruleForm = reactive<EmployeeType>({
     full_name: null,
     email: null,
     address: null,
-    date_of_birth: new Date(),
+    date_of_birth: null,
     gender: '',
     status: false,
     role: '',
@@ -118,7 +120,7 @@ const submitForm = async (formEl: FormInstance | undefined) => {
                 if (isEditMode.value && currentEditId.value !== null) {
 
                     console.log(ruleForm);
-                    const response = await updateRoute(currentEditId.value, ruleForm);
+                    const response = await updateEmployee(currentEditId.value, ruleForm);
                     if (response.success) {
                         ElNotification({
                             message: h('p', { style: 'color: teal' }, 'Cập nhật tài khoản thành công!'),
@@ -134,7 +136,7 @@ const submitForm = async (formEl: FormInstance | undefined) => {
                     }
                 } else {
                     console.log(ruleForm);
-                    const response = await createRoute(ruleForm);
+                    const response = await createEmployee(ruleForm);
                     if (response.success) {
                         ElNotification({
                             message: h('p', { style: 'color: teal' }, 'Thêm tài khoản mới thành công!'),
@@ -158,11 +160,45 @@ const submitForm = async (formEl: FormInstance | undefined) => {
         }
     });
 };
+const fetchListEmployees = async () => {
+    loading.value = true;
+    try {
+        const response = await getListEmployeeByCompany(Number(companyStore.id));
+        if (response.result) {
+            employees.value = response.result;
+        } else {
+            ElNotification({
+                message: h('p', { style: 'color: red' }, 'Không tìm thấy nhân viên nào!'),
+                type: 'warning',
+            });
+        }
+    } catch (error) {
+        ElNotification({
+            message: h('p', { style: 'color: red' }, 'Đã xảy ra lỗi khi tải danh sách nhân viên!'),
+            type: 'error',
+        });
+        console.error(error);
+    } finally {
+        loading.value = false;
+    }
+};
 onMounted(() => {
     companyStore.loadCompanyStore();
     authStore.loadUserInfo();
-
+    // fetchListEmployees();
 });
+const categoryGenderOptions = [
+    { label: 'Nam', value: 'male' },
+    { label: 'Nữ', value: 'female' },
+    { label: 'Khác', value: 'other' }
+]
+const categoryRoleOptions = [
+    { label: 'Quản trị viên', value: 'ADMIN' },
+    { label: 'Nhân viên', value: 'STAFF' },
+    { label: 'Tài xế', value: 'DRIVER' },
+    { label: 'Phụ xe', value: 'ASSISTANT' },
+    { label: 'Đại lý', value: 'AGENT' }
+];
 </script>
 <template>
     <section>
@@ -174,7 +210,7 @@ onMounted(() => {
         <el-drawer v-model="drawer" :direction="direction" :before-close="cancelClick" size="50%">
             <template #header>
                 <div class="font-semibold text-lg text-black">{{ isEditMode ? 'Chỉnh sửa nhân viên' : 'Thêm nhân viên'
-                    }}</div>
+                }}</div>
             </template>
             <template #default>
 
@@ -187,45 +223,25 @@ onMounted(() => {
                             <InputText v-model="ruleForm.number_phone" prop="number_phone" label="Số điện thoại" />
                             <InputText v-model="ruleForm.email" prop="email" label="Email" />
                             <InputText v-model="ruleForm.address" prop="address" label="Địa chỉ" />
-                            <el-form-item prop="date_of_birth" label-position="top">
-                                <template #label>
-                                    <span class="text-sm font-medium text-gray-700">Ngày sinh</span>
-                                </template>
-                                <el-date-picker v-model="ruleForm.date_of_birth" type="date" placeholder="Chọn ngày sinh"
-                                    style="width: 100%" />
-                            </el-form-item>
-                            <el-form-item prop="gender" label-position="top">
-                                <template #label>
-                                    <span class="text-sm font-medium text-gray-700">Giới tính</span>
-                                </template>
-                                <el-select v-model="ruleForm.gender" placeholder="Chọn giới tính" style="width: 100%">
-                                    <el-option label="Nam" value="male" />
-                                    <el-option label="Nữ" value="female" />
-                                    <el-option label="Khác" value="other" />
-                                </el-select>
-                            </el-form-item>
+                            <InputDate v-model="ruleForm.date_of_birth" prop="date_of_birth" label="Ngày sinh"
+                                placeholder="Chọn ngày sinh" type="date" format="DD/MM/YYYY" value-format="YYYY-MM-DD"
+                                clearable />
+                            <Select v-model="ruleForm.gender" prop="gender" label="Giới tính"
+                                :options="categoryGenderOptions" clearable />
                         </el-col>
                         <el-col :span="12" class="pl-5">
                             <h2 class="text-gray-500 font-medium mb-5">THÔNG TIN TÀI KHOẢN</h2>
                             <InputText v-model="ruleForm.username" prop="username" label="Tên đăng nhập" />
                             <InputText v-model="ruleForm.password" prop="password" label="Mật khẩu" type="password" />
-                            <el-form-item prop="role" label-position="top">
-                                <template #label>
-                                    <span class="text-sm font-medium text-gray-700">Vai trò</span>
-                                </template>
-                                <el-select v-model="ruleForm.role" placeholder="Chọn vai trò" style="width: 100%">
-                                    <el-option label="Quản trị viên" value="ADMIN" />
-                                    <el-option label="Nhân viên" value="STAFF" />
-                                    <el-option label="Tài xế" value="DRIVER" />
-                                    <el-option label="Phụ xe" value="ASSISTANT" />
-                                    <el-option label="Đại lý" value="AGENT" />
-                                </el-select>
-                            </el-form-item>
+
+                            <Select v-model="ruleForm.role" prop="role" label="Vai trò" :options="categoryRoleOptions"
+                                clearable />
                             <el-form-item prop="status" label-position="top">
                                 <template #label>
                                     <span class="text-sm font-medium text-gray-700">Trạng thái</span>
                                 </template>
-                                <el-switch v-model="ruleForm.status" active-text="Kích hoạt" inactive-text="Ngưng kích hoạt" size="large" />
+                                <el-switch v-model="ruleForm.status" active-text="Kích hoạt"
+                                    inactive-text="Ngưng kích hoạt" size="large" />
                             </el-form-item>
                             <h2 class="text-gray-500 font-medium mb-5">CÁC ỨNG DỤNG CẦN TRUY CẬP</h2>
                             <el-form-item prop="accept_app.bms" label-position="top">
@@ -254,7 +270,7 @@ onMounted(() => {
                             </el-form-item>
                         </el-col>
                     </el-row>
-                </el-form>  
+                </el-form>
             </template>
             <template #footer>
                 <div style="flex: auto">
