@@ -8,6 +8,7 @@ export interface RouteType {
     note: string | null;
     e_ticket_price: number | null;
     status: boolean;
+    display_order?: number;
     distance: number | null;
     journey: string | null;
     created_by: string | null;

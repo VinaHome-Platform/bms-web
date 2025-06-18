@@ -71,4 +71,24 @@ export const getListRouteByCompany = async (companyId: number): Promise<ApiRespo
   }
 }
 
+export const updateRouteOrder = async (data: { route_id: number; display_order: number, company_id: number }): Promise<ApiResponse<RouteType>> => {
+  const config = useRuntimeConfig();
+  const apiGateWay = config.public.apiGateWay;
+  const cookie = useCookie('access_token');
+  try {
+    return await $fetch<ApiResponse<RouteType>>(`${apiGateWay}/v2/route/update-route-order`, {
+      method: "POST",
+      headers: {
+        'Authorization': `Bearer ${cookie.value}`,
+      },
+      body: data
+    });
+  } catch (error) {
+    console.error("API error:", error);
+    throw error;
+  }
+}
+
+
+
 

@@ -36,10 +36,6 @@ const companyStore = useCompanyStore();
 // Reactive data
 const searchQuery = ref('')
 
-const userInfo = reactive({
-  name: 'Quản trị viên',
-  email: 'admin@company.com'
-})
 
 const notifications = ref([
   { id: 1, text: "Người dùng mới đăng ký", time: "2 phút trước", type: "user" },
@@ -125,6 +121,27 @@ const menuItems = [
   },
 ];
 
+const logout = async () => {
+  try {
+    await authStore.resetUserInfo();
+    await officeStore.resetOfficeStore();
+    await companyStore.resetCompanyStore();
+    ElNotification({
+      message: h('p', { style: 'color: teal' }, 'Đăng xuất thành công!'),
+      type: 'success',
+    })
+    navigateTo('/');
+  } catch (error) {
+    console.error('Logout failed:', error);
+    ElNotification({
+      message: h('p', { style: 'color: red' }, 'Đăng xuất không thành công!'),
+      type: 'error',
+    })
+  }
+}
+
+
+
 onMounted(async () => {
   await authStore.loadUserInfo();
   await officeStore.loadOfficeStore();
@@ -174,7 +191,7 @@ onMounted(async () => {
         </template>
       </el-dropdown>
 
-   
+
       <div class="flex items-center space-x-3">
         <div>
           <h1 class="text-lg font-semibold text-gray-900">{{ companyStore.name }}</h1>
@@ -269,8 +286,8 @@ onMounted(async () => {
             </el-icon>
           </el-avatar>
           <div class="hidden md:block text-left">
-            <div class="text-sm font-medium text-gray-900">{{ userInfo.name }}</div>
-            <div class="text-xs text-gray-500">{{ userInfo.email }}</div>
+            <div class="text-sm font-medium text-gray-900">{{ authStore.full_name }}</div>
+            <div class="text-xs text-gray-500">{{ authStore.username }}</div>
           </div>
         </div>
         <template #dropdown>
@@ -283,8 +300,8 @@ onMounted(async () => {
                   </el-icon>
                 </el-avatar>
                 <div>
-                  <div class="text-sm font-medium text-gray-900">{{ userInfo.name }}</div>
-                  <div class="text-xs text-gray-500">{{ userInfo.email }}</div>
+                  <div class="text-sm font-medium text-gray-900">{{ authStore.full_name }}</div>
+                  <div class="text-xs text-gray-500">{{ authStore.role }}</div>
                 </div>
               </div>
             </div>
@@ -310,7 +327,7 @@ onMounted(async () => {
               <span class="ml-2">Quản lý hệ thống</span>
             </el-dropdown-item>
 
-            <el-dropdown-item divided command="logout" class="text-red-600">
+            <el-dropdown-item divided command="logout" class="text-red-600" @click="logout">
               <el-icon>
                 <SwitchButton />
               </el-icon>
