@@ -1,4 +1,4 @@
-import type { RouteType } from "~/types/routeType";
+import type { DTO_RP_ListRouteName, RouteType } from "~/types/routeType";
 import type { ApiResponse } from "./APIResponse";
 
 export const createRoute = async (data: RouteType): Promise<ApiResponse<RouteType>> => {
@@ -82,6 +82,23 @@ export const updateRouteOrder = async (data: { route_id: number; display_order: 
         'Authorization': `Bearer ${cookie.value}`,
       },
       body: data
+    });
+  } catch (error) {
+    console.error("API error:", error);
+    throw error;
+  }
+}
+
+export const getListRouteNameByCompany = async (id:number): Promise<ApiResponse<DTO_RP_ListRouteName[]>> => {
+  const config = useRuntimeConfig();
+  const apiGateWay = config.public.apiGateWay;
+  const cookie = useCookie('access_token');
+  try {
+    return await $fetch<ApiResponse<DTO_RP_ListRouteName[]>>(`${apiGateWay}/v2/route/get-list-route-name-by-company/${id}`, {
+      method: "GET",
+      headers: {
+        'Authorization': `Bearer ${cookie.value}`
+      }
     });
   } catch (error) {
     console.error("API error:", error);

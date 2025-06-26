@@ -6,7 +6,7 @@ export const createEmployee = async (data: EmployeeType): Promise<ApiResponse<Em
   const apiGateWay = config.public.apiGateWay;
   const cookie = useCookie('access_token');
   try {
-    return await $fetch<ApiResponse<EmployeeType>>(`${apiGateWay}/v2/employee/create-employee`, {
+    return await $fetch<ApiResponse<EmployeeType>>(`${apiGateWay}/v1/account/create-account-staff`, {
       method: "POST",
       headers: {
         'Authorization': `Bearer ${cookie.value}`,
@@ -24,7 +24,7 @@ export const updateEmployee = async (id: number, data: EmployeeType): Promise<Ap
   const apiGateWay = config.public.apiGateWay;
   const cookie = useCookie('access_token');
   try {
-    return await $fetch<ApiResponse<EmployeeType>>(`${apiGateWay}/v2/employee/update-employee/${id}`, {
+    return await $fetch<ApiResponse<EmployeeType>>(`${apiGateWay}/v1/account/update-account-staff/${id}`, {
       method: "PUT",
       headers: {
         'Authorization': `Bearer ${cookie.value}`,
@@ -42,7 +42,7 @@ export const deleteEmployee = async (id: number): Promise<ApiResponse<void>> => 
   const apiGateWay = config.public.apiGateWay;
   const cookie = useCookie('access_token');
   try {
-    return await $fetch<ApiResponse<void>>(`${apiGateWay}/v2/employee/delete-employee/${id}`, {
+    return await $fetch<ApiResponse<void>>(`${apiGateWay}/v1/account/delete-account-staff/${id}`, {
       method: "DELETE",
       headers: {
         'Authorization': `Bearer ${cookie.value}`
@@ -59,7 +59,7 @@ export const getListEmployeeByCompany = async (companyId: number): Promise<ApiRe
   const apiGateWay = config.public.apiGateWay;
   const cookie = useCookie('access_token');
   try {
-    return await $fetch<ApiResponse<EmployeeType[]>>(`${apiGateWay}/v2/employee/get-list-employee-by-company/${companyId}`, {
+    return await $fetch<ApiResponse<EmployeeType[]>>(`${apiGateWay}/v1/account/get-list-account-by-company/${companyId}`, {
       method: "GET",
       headers: {
         'Authorization': `Bearer ${cookie.value}`,

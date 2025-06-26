@@ -116,6 +116,7 @@ const menuItems = [
       { label: 'Đại lý', index: '13-6', to: '/declare/agent' },
       { label: 'Lịch chạy', index: '13-7', to: '/declare/schedule' },
       { label: 'Mã giảm giá', index: '13-8', to: '/declare/discount' },
+      { label: 'Sơ đồ ghế', index: '13-9', to: '/declare/seat' },
 
     ],
   },

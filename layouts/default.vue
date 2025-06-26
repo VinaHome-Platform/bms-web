@@ -10,7 +10,7 @@ onMounted(async () => {
 });
 </script>
 <template>
-    <div class=" bg-gray-50">
+    <div class=" bg-gray-100">
         <Header />
 
         <section class="p-2 mt-[60px]">

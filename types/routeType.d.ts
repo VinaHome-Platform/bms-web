@@ -14,3 +14,8 @@ export interface RouteType {
     created_by: string | null;
     created_at: Date | null;
 }
+
+export interface DTO_RP_ListRouteName {
+  id: number;
+  route_name: string;
+}

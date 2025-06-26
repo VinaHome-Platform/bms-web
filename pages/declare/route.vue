@@ -6,8 +6,8 @@ import type { DrawerProps, FormInstance, FormRules } from 'element-plus'
 import { createRoute, deleteRoute, getListRouteByCompany, updateRoute, updateRouteOrder } from '~/api/routeAPI';
 import type { RouteType } from '~/types/routeType';
 import { format } from 'date-fns'
-import InputText from '~/components/ui/inputText.vue';
-import InputNumber from '~/components/ui/inputNumber.vue';
+import InputText from '~/components/inputs/inputText.vue';
+import InputNumber from '~/components/inputs/inputNumber.vue';
 import { formatCurrency } from '~/lib/formatCurrency';
 definePageMeta({
     layout: 'default',
