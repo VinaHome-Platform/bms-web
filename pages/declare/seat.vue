@@ -1,22 +1,18 @@
 <script setup lang="ts">
-import {
-    Plus, Delete, Edit, ArrowUp, ArrowDown
-} from '@element-plus/icons-vue'
-import type { DrawerProps, FormInstance, FormRules } from 'element-plus'
+import type { FormInstance } from 'element-plus'
 import type { SeatChartType, SeatType } from '~/types/seatType';
-import { createSeatChart } from '~/api/seatAPI';
-
+import { createSeatChart, deleteSeatChart, getSeatChartByCompany, updateSeatChart } from '~/api/seatAPI';
+import { format } from 'date-fns';
 definePageMeta({
     layout: 'default',
 })
 
 const companyStore = useCompanyStore();
 const authStore = useAuthStore();
-const drawer = ref(false)
-const direction = ref<DrawerProps[ 'direction' ]>('rtl')
 const isEditMode = ref(false)
 const currentEditId = ref<number | null>(null);
 const loading = ref(false);
+const isSubmitting = ref(false);
 const seatChart = ref<SeatChartType[]>([]);
 
 const ruleFormRef = ref<FormInstance>()
@@ -52,11 +48,30 @@ const optionsRow = Array.from({ length: 10 }, (_, i) => ({
     label: `${i + 1} hàng`,
     value: i + 1,
 }))
+const fetchSeatCharts = async () => {
+    loading.value = true;
+    try {
+        const response = await getSeatChartByCompany(Number(companyStore.id));
+        if (response.result) {
+            seatChart.value = response.result;
+            console.log('Danh sách sơ đồ ghế:', seatChart.value);
+        } else {
+            ElNotification({
+                message: h('p', { style: 'color: red' }, 'Không có dữ liệu sơ đồ ghế!'),
+                type: 'error',
+            });
+        }
+    } catch (error) {
+        ElNotification({
+            message: h('p', { style: 'color: red' }, 'Đã xảy ra lỗi khi tải danh sơ đồ!'),
+            type: 'error',
+        });
+        console.error(error);
+    } finally {
+        loading.value = false;
+    }
+}
 
-onMounted(() => {
-    companyStore.loadCompanyStore();
-    authStore.loadUserInfo();
-});
 
 
 const ruleForm = reactive<SeatChartType>({
@@ -78,25 +93,37 @@ const showSeatChart = computed(() => {
     return ruleForm.total_floor && ruleForm.total_row && ruleForm.total_column
 })
 
-
 const getGridStyle = (_floor: number) => {
     return {
-        gridTemplateColumns: `repeat(${ruleForm.total_column}, 1fr)`,
-        gridTemplateRows: `repeat(${ruleForm.total_row}, 1fr)`
+        gridTemplateColumns: `repeat(${ruleForm.total_column}, minmax(100px, 1fr))`,
+        gridTemplateRows: `repeat(${ruleForm.total_row}, minmax(80px, 1fr))`,
+        gap: '10px'
     }
 }
 
-
 const getSeatsForFloor = (floor: number) => {
     if (!ruleForm.seats) return []
+
+    // Lọc ghế theo tầng
     const floorSeats = ruleForm.seats.filter(seat => seat.floor === floor)
-    console.log(`Tầng ${floor}: ${floorSeats.length} ghế`, floorSeats)
-    return floorSeats
+
+    // Sắp xếp ghế theo hàng (row) và cột (column)
+    const sortedSeats = floorSeats.sort((a, b) => {
+        // Ưu tiên sắp xếp theo hàng trước
+        if ((a.row ?? 0) !== (b.row ?? 0)) {
+            return (a.row ?? 0) - (b.row ?? 0)
+        }
+        // Nếu cùng hàng thì sắp xếp theo cột
+        return (a.column ?? 0) - (b.column ?? 0)
+    })
+
+    console.log(`Tầng ${floor}: ${sortedSeats.length} ghế`, sortedSeats)
+    return sortedSeats
 }
 
 
 const getSeatClass = (seat: SeatType) => {
-    const baseClasses = 'w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-300 border-2 relative text-white';
+    const baseClasses = 'py-1 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-300 border-2 relative text-white';
 
     if (seat.status) {
         return `${baseClasses} bg-green-500 hover:bg-green-600`;
@@ -114,7 +141,6 @@ const generateSeats = () => {
     const currentSeats = ruleForm.seats || []
     const newSeats = []
 
-    // Tạo map của các ghế hiện tại để tra cứu nhanh
     const seatMap = new Map()
     currentSeats.forEach(seat => {
         if (seat.code) {
@@ -122,15 +148,12 @@ const generateSeats = () => {
         }
     })
 
-    // Duyệt qua tất cả vị trí ghế mới
     for (let floor = 1; floor <= (ruleForm.total_floor ?? 0); floor++) {
         for (let row = 1; row <= (ruleForm.total_row ?? 0); row++) {
             for (let col = 1; col <= (ruleForm.total_column ?? 0); col++) {
                 const seatCode = `F${floor}-C${col}-R${row}`
 
-                // Kiểm tra xem ghế này đã tồn tại chưa
                 if (seatMap.has(seatCode)) {
-                    // Giữ lại ghế cũ với thông tin đã nhập
                     const existingSeat = seatMap.get(seatCode)
                     newSeats.push({
                         ...existingSeat,
@@ -139,7 +162,6 @@ const generateSeats = () => {
                         column: col
                     })
                 } else {
-                    // Tạo ghế mới
                     newSeats.push({
                         id: null,
                         name: null,
@@ -159,22 +181,112 @@ const generateSeats = () => {
     console.log('Ghế mới:', newSeats)
 }
 
+
+const handleRowClick = (row: SeatChartType) => {
+    isEditMode.value = true;
+    currentEditId.value = row.id;
+
+    ruleForm.id = row.id;
+    ruleForm.seat_chart_name = row.seat_chart_name;
+    ruleForm.seat_chart_type = row.seat_chart_type;
+    ruleForm.total_floor = row.total_floor;
+    ruleForm.total_row = row.total_row;
+    ruleForm.total_column = row.total_column;
+    ruleForm.created_by = row.created_by || authStore.username;
+    ruleForm.seats = row.seats || [];
+
+    console.log('Đã chọn sơ đồ:', row);
+};
+const handleExit = (formEl: FormInstance | undefined) => {
+    if (!formEl) return
+    formEl.resetFields()
+    isEditMode.value = false;
+    currentEditId.value = null;
+    ruleForm.id = null;
+    ruleForm.seat_chart_name = null;
+    ruleForm.seat_chart_type = 1;
+    ruleForm.total_floor = 1;
+    ruleForm.total_row = 1;
+    ruleForm.total_column = 1;
+    ruleForm.created_by = authStore.username;
+    ruleForm.company_id = companyStore.id;
+    ruleForm.seats = [];
+};
+const handleDelete = async () => {
+    if (!currentEditId.value) return;
+    isSubmitting.value = true;
+    try {
+        await ElMessageBox.confirm(
+            'Bạn có chắc chắn muốn xóa tài khoản này?',
+            'Xác nhận xoá',
+            {
+                confirmButtonText: 'Xoá',
+                cancelButtonText: 'Huỷ',
+                type: 'warning',
+            }
+        );
+
+        await deleteSeatChart(currentEditId.value);
+        ElNotification({
+            message: h('p', { style: 'color: green' }, 'Xoá sơ đồ thành công!'),
+            type: 'success',
+        });
+        seatChart.value = seatChart.value.filter(item => item.id !== currentEditId.value);
+        handleExit(ruleFormRef.value);
+    } catch (error) {
+        if (error !== 'cancel') {
+            ElNotification({
+                message: h('p', { style: 'color: red' }, 'Đã xảy ra lỗi khi xoá sơ đồ!'),
+                type: 'error',
+            });
+            console.error(error);
+        }
+    } finally {
+        isSubmitting.value = false;
+    }
+};
 const submitForm = async (formEl: FormInstance | undefined) => {
     if (!formEl) return;
+    isSubmitting.value = true;
     await formEl.validate(async (valid) => {
         if (valid) {
             try {
                 if (isEditMode.value && currentEditId.value !== null) {
 
                     console.log(ruleForm);
-                    
+                    const response = await updateSeatChart(currentEditId.value, ruleForm);
+                    if (response.success) {
+                        ElNotification({
+                            message: h('p', { style: 'color: teal' }, 'Cập nhật sơ đồ thành công!'),
+                            type: 'success',
+                        })
+                        const index = seatChart.value.findIndex(seat_chart => seat_chart.id === currentEditId.value);
+                        if (index !== -1) {
+                            seatChart.value[ index ] = {
+                                ...seatChart.value[ index ],
+                                ...ruleForm,
+                                created_at: seatChart.value[ index ].created_at
+                            };
+
+                        }
+                        handleExit(formEl);
+                    }
                 } else {
                     console.log('Thêm mới sơ đồ ghế:', ruleForm);
                     const response = await createSeatChart(ruleForm);
-                    if (response) {
+                    if (response.success) {
                         ElNotification({
                             message: h('p', { style: 'color: green' }, 'Thêm sơ đồ ghế mới thành công!'),
                             type: 'success',
+                        });
+                        if (response.result) {
+                            seatChart.value.push(response.result);
+                            handleExit(formEl);
+                        }
+                    } else {
+                        ElNotification({
+                            message: h('p', { style: 'color: red' }, response.message || 'Thêm sơ đồ ghế mới thất bại!'),
+                            type: 'error',
                         });
                     }
                 }
@@ -184,9 +296,16 @@ const submitForm = async (formEl: FormInstance | undefined) => {
                     type: 'error',
                 });
                 console.error(error);
+            } finally {
+                isSubmitting.value = false;
             }
         } else {
             console.log('error submit!');
+            ElNotification({
+                message: h('p', { style: 'color: red' }, 'Vui lòng kiểm tra lại thông tin!'),
+                type: 'error',
+            });
+            isSubmitting.value = false;
         }
     });
 }
@@ -204,6 +323,11 @@ const optionsCategorySeatChart = [
     { label: 'Phòng VIP (Cabin đơn)', value: 5 },
     { label: 'Phòng VIP (Cabin đôi)', value: 6 },
 ]
+onMounted(() => {
+    companyStore.loadCompanyStore();
+    authStore.loadUserInfo();
+    fetchSeatCharts();
+});
 </script>
 
 <template>
@@ -214,12 +338,25 @@ const optionsCategorySeatChart = [
 
         <el-row :gutter="20" class="mb-4">
             <el-col :span="8">
-                <el-table :data="seatChart" style="width: 100%">
+                <el-table v-loading="loading" :data="seatChart" element-loading-text="Đang tải dữ liệu..."
+                    style="width: 100%" @row-click="handleRowClick">
                     <el-table-column type="index" label="STT" width="50" />
-                    <el-table-column prop="seat_chart_name" label="Tên sơ đồ" />
-                    <el-table-column prop="total_floor" label="Số tầng" width="80" />
-                    <el-table-column prop="total_row" label="Số hàng" width="80" />
-                    <el-table-column prop="total_column" label="Số cột" width="80" />
+                    <el-table-column label="Tên sơ đồ">
+                        <template #default="scope">
+                            <span class="font-semibold">{{ scope.row.seat_chart_name }}</span>
+                            <br />
+                            <span class="text-gray-500 text-sm">{{optionsCategorySeatChart.find(item => item.value ===
+                                scope.row.seat_chart_type)?.label}}</span>
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="Cập nhật">
+                        <template #default="scope">
+                            <span class="text-gray-500 text-sm">{{ scope.row.created_by }}</span>
+                            <br />
+                            <span class="text-gray-500 text-sm">{{ format(scope.row.created_at, 'dd/MM/yyyy HH:mm')
+                                }}</span>
+                        </template>
+                    </el-table-column>
                 </el-table>
             </el-col>
 
@@ -282,14 +419,14 @@ const optionsCategorySeatChart = [
                                     <div class="grid gap-3 p-2 max-w-4xl " :style="getGridStyle(floor)">
                                         <div v-for="seat in getSeatsForFloor(floor)"
                                             :key="seat.id ?? `seat-${seat.code}`"
-                                            class="flex flex-col items-center bg-gray-500 gap-2 border border-gray-300 rounded-lg p-2">
+                                            class="flex flex-col items-center gap-2 border border-gray-300 rounded-lg p-2">
                                             <div :class="getSeatClass(seat)" class="px-2"
                                                 :title="`${seat.name} - Floor: ${seat.floor}, Row: ${seat.row}, Col: ${seat.column}`">
                                                 <span class="text-xs font-bold text-black drop-shadow-sm">{{
                                                     seat.code }}</span>
                                             </div>
-                                            <el-input v-model="seat.name" size="small" class="w-20 text-center"
-                                                placeholder="Tên ghế" />
+                                            <el-input v-model="seat.name" size="small"
+                                                class="w-20 text-center font-semibold" placeholder="Tên ghế" />
                                             <el-switch v-model="seat.status" />
                                             <el-select v-model="seat.type" size="small" placeholder="Loại ghế">
                                                 <el-option v-for="item in optionsTypeSeat" :key="item.value"
@@ -301,10 +438,16 @@ const optionsCategorySeatChart = [
                             </div>
                         </div>
                         <div class="flex justify-end gap-3 mt-6">
-                            <el-button :type="isEditMode ? 'success' : 'primary'" @click="submitForm(ruleFormRef)">
+                            <el-button type="warning" v-if="isEditMode" @click="handleExit(ruleFormRef)">
+                                Thoát
+                            </el-button>
+                            <el-button type="danger" v-if="isEditMode" @click="handleDelete" :loading="isSubmitting">
+                                Xoá sơ đồ
+                            </el-button>
+                            <el-button :loading="isSubmitting" :type="isEditMode ? 'success' : 'primary'"
+                                @click="submitForm(ruleFormRef)">
                                 {{ isEditMode ? 'Lưu sơ đồ' : 'Thêm sơ đồ' }}
                             </el-button>
-
                         </div>
                     </el-form>
                 </div>
