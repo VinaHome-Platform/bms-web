@@ -20,3 +20,8 @@ export interface SeatType {
     column: number | null;
     type?: number;
 }
+
+export interface SeatChartNameType {
+    id: number;
+    seat_chart_name: string;
+}
