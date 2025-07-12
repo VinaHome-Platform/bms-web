@@ -68,3 +68,6 @@ body {
     box-sizing: border-box;
 }
 
+.el-collapse-item__content{
+  padding-bottom: 5px !important;
+}

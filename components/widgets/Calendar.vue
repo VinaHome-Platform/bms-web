@@ -23,10 +23,10 @@ const emit = defineEmits<{
 }>()
 
 // State
-const selectedDate = ref<Date>(
+const selectedDate = ref<Date | null>(
     props.modelValue
         ? (typeof props.modelValue === 'string' ? new Date(props.modelValue) : props.modelValue)
-        : new Date()
+        : null // <-- Thay bằng null khi không có giá trị
 )
 
 const currentMonth = ref(new Date())
@@ -223,7 +223,8 @@ const getLunarDate = (date: Date) => {
 }
 
 // Methods
-const isSameDay = (date1: Date, date2: Date) => {
+const isSameDay = (date1: Date, date2: Date | null) => {
+    if (!date2) return false
     return date1.toDateString() === date2.toDateString()
 }
 
@@ -270,14 +271,6 @@ const goToToday = () => {
     emit('select', today)
 }
 
-const formatDate = (date: Date) => {
-    return date.toLocaleDateString('vi-VN', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    })
-}
 
 const isDateDisabled = (date: Date) => {
     return props.disabled || (props.disabledDate && props.disabledDate(date))

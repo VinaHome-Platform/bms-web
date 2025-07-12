@@ -106,6 +106,23 @@ export const getListRouteNameByCompany = async (id:number): Promise<ApiResponse<
   }
 }
 
+export const getListRouteNameActionByCompany = async (id:number): Promise<ApiResponse<DTO_RP_ListRouteName[]>> => {
+  const config = useRuntimeConfig();
+  const apiGateWay = config.public.apiGateWay;
+  const cookie = useCookie('access_token');
+  try {
+    return await $fetch<ApiResponse<DTO_RP_ListRouteName[]>>(`${apiGateWay}/v2/route/get-list-route-name-action-by-company/${id}`, {
+      method: "GET",
+      headers: {
+        'Authorization': `Bearer ${cookie.value}`
+      }
+    });
+  } catch (error) {
+    console.error("API error:", error);
+    throw error;
+  }
+}
+
 
 
 
