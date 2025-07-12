@@ -16,4 +16,10 @@ export interface TicketType {
   ticket_note: string;
   ticket_display_price: number;
   payment_method: string;
+  selectedBy?: string;
+}
+
+export interface IsSelectTicketType {
+  id: number;
+  username: string;
 }

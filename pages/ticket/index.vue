@@ -15,15 +15,18 @@ import type { TripType } from '~/types/tripType';
 import { getListTicketsByTrip } from '~/api/ticketAPI';
 import type { TicketType } from '~/types/ticketType';
 import { useFirebase } from '~/composables/useFirebase';
+import { get, remove } from 'firebase/database';
 
 const { db, ref: dbRef, set, onValue, off } = useFirebase()
 
 const companyStore = useCompanyStore();
+const authStore = useAuthStore();
 const routeNames = ref<DTO_RP_ListRouteName[]>([]);
 const loadingListRouteName = ref(false);
 const loadingListTrip = ref(false);
 const tripList = ref<TripType[]>([]);
 const selectedTrip = ref<TripType | null>(null);
+const selectedTickets = ref<TicketType[]>([]);
 const ticketList = ref<TicketType[]>([]);
 const fetchListRouteName = async () => {
   loadingListRouteName.value = true;
@@ -107,11 +110,7 @@ const fetchListTripByRouteAndDate = async (valueDate: string | Date | undefined,
 
 const activeNames = ref(['1'])
 const activeTab = ref('1');
-function handleTripSelected(trip: TripType) {
-  console.log('Trip được chọn:', trip);
-  selectedTrip.value = trip;
-  activeTab.value = '';
-}
+
 
 const handleChange = (val: CollapseModelValue) => {
   console.log(val)
@@ -141,22 +140,7 @@ const fetchListTicketByTrip = async (id: number) => {
     loadingListTicket.value = false;
   }
 };
-const handleClickTabs = (tab: TabsPaneContext, event: Event) => {
-  console.log(tab, event)
-  console.log('Tab được click:', tab.props.name);
-  if (tab.props.name === '1') {
-    console.log('Sơ đồ ghế tab được chọn');
-    fetchListTicketByTrip(selectedTrip.value?.id || 0);
-  } else if (tab.props.name === '2') {
-    console.log('Hành khách tab được chọn');
-  } else if (tab.props.name === '3') {
-    console.log('Trung chuyển tab được chọn');
-  } else if (tab.props.name === '4') {
-    console.log('Hàng hóa tab được chọn');
-  } else if (tab.props.name === '5') {
-    console.log('Thu chi chuyến tab được chọn');
-  }
-}
+
 
 const getFloorSeats = (floor: number) => {
   const floorTickets = ticketList.value.filter(ticket => ticket.seat_floor === floor);
@@ -190,24 +174,32 @@ const getAvailableFloors = () => {
 
 
 
-const selectedTickets = ref<TicketType[]>([]);
+async function handleTripSelected(trip: TripType) {
+  console.log('Trip được chọn:', trip);
+
+
+  // Cập nhật sang trip mới
+  selectedTrip.value = trip;
+  activeTab.value = '';
+  selectedTickets.value = [];
+}
+
+
 const handleTicketClick = async (ticket: TicketType) => {
   if (!selectedTrip.value?.id) return
-  
+
+  const tripId = selectedTrip.value.id
+  const ticketPath = `selectedTickets/${tripId}/${ticket.id}`
   const index = selectedTickets.value.findIndex(t => t.id === ticket.id)
-  const updatedTickets = [...selectedTickets.value]
-  
-  if (index === -1) {
-    updatedTickets.push(ticket);
-  } else {
-    updatedTickets.splice(index, 1);
-  }
 
   try {
-    await set(
-      dbRef(db, `selectedTickets/${selectedTrip.value.id}`),
-      Object.fromEntries(updatedTickets.map(t => [t.id, t]))
-    )
+    if (index === -1) {
+      // Chọn vé => thêm vào Firebase
+      await set(dbRef(db, ticketPath), authStore.full_name || '')
+    } else {
+      // Bỏ chọn vé => xóa khỏi Firebase
+      await remove(dbRef(db, ticketPath))
+    }
   } catch (error) {
     console.error('Lỗi cập nhật Firebase:', error)
   }
@@ -215,26 +207,82 @@ const handleTicketClick = async (ticket: TicketType) => {
 const isTicketSelected = (ticket: TicketType) => {
   return selectedTickets.value.some(t => t.id === ticket.id);
 };
+
+
 const setupRealtimeListener = (tripId: number) => {
   const ticketRef = dbRef(db, `selectedTickets/${tripId}`)
-  
+
   onValue(ticketRef, (snapshot) => {
     const data = snapshot.val()
-    selectedTickets.value = data ? Object.values(data) : []
-    console.log('Danh sách vé được cập nhật:', selectedTickets.value)
+    const selected: TicketType[] = []
+
+    if (data && ticketList.value.length > 0) {
+      for (const [ticketIdStr, userName] of Object.entries(data)) {
+        const ticket = ticketList.value.find(t => t.id === Number(ticketIdStr))
+        if (ticket) {
+          selected.push({
+            ...ticket,
+            selectedBy: typeof userName === 'string' ? userName : undefined
+          })
+        }
+      }
+    }
+
+    selectedTickets.value = selected
+    console.log('Danh sách vé được cập nhật:', selected)
   })
 }
-watch(selectedTrip, (newTrip, oldTrip) => {
+const handleClickTabs = async (tab: TabsPaneContext, event: Event) => {
+  console.log(tab, event)
+  console.log('Tab được click:', tab.props.name);
+  if (tab.props.name === '1') {
+    console.log('Sơ đồ ghế tab được chọn');
+    if (selectedTrip.value?.id) {
+      // 1. Gọi API lấy danh sách vé
+      await fetchListTicketByTrip(selectedTrip.value.id);
+
+      // 2. Ép cập nhật lại selectedTickets từ Firebase
+      setupRealtimeListener(selectedTrip.value.id);
+    }
+  } else if (tab.props.name === '2') {
+    console.log('Hành khách tab được chọn');
+  } else if (tab.props.name === '3') {
+    console.log('Trung chuyển tab được chọn');
+  } else if (tab.props.name === '4') {
+    console.log('Hàng hóa tab được chọn');
+  } else if (tab.props.name === '5') {
+    console.log('Thu chi chuyến tab được chọn');
+  }
+}
+const getTicketSelector = (ticket: TicketType) => {
+  const found = selectedTickets.value.find(t => t.id === ticket.id);
+  return found?.selectedBy || null;
+};
+watch(selectedTrip, async (newTrip, oldTrip) => {
   if (oldTrip?.id) {
-    // Hủy lắng nghe trip cũ
-    off(dbRef(db, `selectedTickets/${oldTrip.id}`))
+    // 1. Hủy lắng nghe trip cũ
+    off(dbRef(db, `selectedTickets/${oldTrip.id}`));
+
+    // 2. Xóa các vé do người dùng hiện tại đã chọn trên trip cũ
+    const ticketRef = dbRef(db, `selectedTickets/${oldTrip.id}`);
+    const snapshot = await get(ticketRef);
+    const data = snapshot.val();
+
+    if (data) {
+      for (const [ticketId, userName] of Object.entries(data)) {
+        if (userName === authStore.full_name) {
+          await remove(dbRef(db, `selectedTickets/${oldTrip.id}/${ticketId}`));
+        }
+      }
+    }
   }
-  
+
   if (newTrip?.id) {
-    // Thiết lập lắng nghe trip mới
-    setupRealtimeListener(newTrip.id)
+    // 3. Thiết lập lắng nghe trip mới
+    setupRealtimeListener(newTrip.id);
   }
-})
+});
+
 
 
 watch([valueSelectedDate, valueSelectedRoute], ([newDate, newRoute], [oldDate, oldRoute]) => {
@@ -245,14 +293,10 @@ watch([valueSelectedDate, valueSelectedRoute], ([newDate, newRoute], [oldDate, o
 });
 
 onMounted(() => {
+  authStore.loadUserInfo();
   companyStore.loadCompanyStore();
   fetchListRouteName();
 });
-onUnmounted(() => {
-  if (selectedTrip.value?.id) {
-    off(dbRef(db, `selectedTickets/${selectedTrip.value.id}`))
-  }
-})
 </script>
 
 <template>
@@ -409,7 +453,7 @@ onUnmounted(() => {
                               class="grid gap-1 w-full"
                               :style="{ gridTemplateColumns: `repeat(${row.seats.length}, 1fr)` }">
                               <TicketItem v-for="seat in row.seats" :key="seat.id" :ticket="seat"
-                                :onClick="() => handleTicketClick(seat)" :isSelected="isTicketSelected(seat)"/>
+                                :onClick="() => handleTicketClick(seat)" :isSelected="isTicketSelected(seat)" :selectedBy="getTicketSelector(seat)"/>
                             </div>
                           </div>
                         </div>
