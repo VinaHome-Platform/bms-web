@@ -3,7 +3,6 @@ import Calendar from '~/components/widgets/Calendar.vue';
 import {
   ArrowUpBold, ArrowRightBold
 } from '@element-plus/icons-vue'
-
 import type { CollapseModelValue, TabsPaneContext } from 'element-plus'
 import TicketItem from '~/components/widgets/TicketItem.vue';
 import InputNote from '~/components/inputs/inputNote.vue'
@@ -15,6 +14,9 @@ import { startOfDay, format } from 'date-fns';
 import type { TripType } from '~/types/tripType';
 import { getListTicketsByTrip } from '~/api/ticketAPI';
 import type { TicketType } from '~/types/ticketType';
+import { useFirebase } from '~/composables/useFirebase';
+
+const { db, ref: dbRef, set, onValue, off } = useFirebase()
 
 const companyStore = useCompanyStore();
 const routeNames = ref<DTO_RP_ListRouteName[]>([]);
@@ -156,7 +158,6 @@ const handleClickTabs = (tab: TabsPaneContext, event: Event) => {
   }
 }
 
-// Seat map functions
 const getFloorSeats = (floor: number) => {
   const floorTickets = ticketList.value.filter(ticket => ticket.seat_floor === floor);
   const rows = new Map();
@@ -190,22 +191,50 @@ const getAvailableFloors = () => {
 
 
 const selectedTickets = ref<TicketType[]>([]);
-const handleTicketClick = (ticket: TicketType) => {
-  const index = selectedTickets.value.findIndex(t => t.id === ticket.id);
-
+const handleTicketClick = async (ticket: TicketType) => {
+  if (!selectedTrip.value?.id) return
+  
+  const index = selectedTickets.value.findIndex(t => t.id === ticket.id)
+  const updatedTickets = [...selectedTickets.value]
+  
   if (index === -1) {
-    // Nếu chưa có trong danh sách, thêm vào
-    selectedTickets.value.push(ticket);
+    updatedTickets.push(ticket);
   } else {
-    // Nếu đã có, thì bỏ chọn (xóa khỏi danh sách)
-    selectedTickets.value.splice(index, 1);
+    updatedTickets.splice(index, 1);
   }
 
-  console.log('Danh sách vé được chọn:', selectedTickets.value);
-};
+  try {
+    await set(
+      dbRef(db, `selectedTickets/${selectedTrip.value.id}`),
+      Object.fromEntries(updatedTickets.map(t => [t.id, t]))
+    )
+  } catch (error) {
+    console.error('Lỗi cập nhật Firebase:', error)
+  }
+}
 const isTicketSelected = (ticket: TicketType) => {
   return selectedTickets.value.some(t => t.id === ticket.id);
 };
+const setupRealtimeListener = (tripId: number) => {
+  const ticketRef = dbRef(db, `selectedTickets/${tripId}`)
+  
+  onValue(ticketRef, (snapshot) => {
+    const data = snapshot.val()
+    selectedTickets.value = data ? Object.values(data) : []
+    console.log('Danh sách vé được cập nhật:', selectedTickets.value)
+  })
+}
+watch(selectedTrip, (newTrip, oldTrip) => {
+  if (oldTrip?.id) {
+    // Hủy lắng nghe trip cũ
+    off(dbRef(db, `selectedTickets/${oldTrip.id}`))
+  }
+  
+  if (newTrip?.id) {
+    // Thiết lập lắng nghe trip mới
+    setupRealtimeListener(newTrip.id)
+  }
+})
 
 
 watch([valueSelectedDate, valueSelectedRoute], ([newDate, newRoute], [oldDate, oldRoute]) => {
@@ -219,6 +248,11 @@ onMounted(() => {
   companyStore.loadCompanyStore();
   fetchListRouteName();
 });
+onUnmounted(() => {
+  if (selectedTrip.value?.id) {
+    off(dbRef(db, `selectedTickets/${selectedTrip.value.id}`))
+  }
+})
 </script>
 
 <template>
