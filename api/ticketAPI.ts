@@ -1,4 +1,4 @@
-import type { TicketType } from "~/types/ticketType";
+import type { CancelTicketType, TicketPayloadUpdate, TicketType } from "~/types/ticketType";
 import type { ApiResponse } from "./APIResponse";
 
 export const getListTicketsByTrip = async (
@@ -22,3 +22,50 @@ export const getListTicketsByTrip = async (
     throw error;
   }
 };
+
+export const updateTickets = async (
+  data: TicketPayloadUpdate
+): Promise<ApiResponse<TicketType[]>> => {
+  const config = useRuntimeConfig();
+  const apiGateWay = config.public.apiGateWay;
+  const cookie = useCookie("access_token");
+  try {
+    return await $fetch<ApiResponse<TicketType[]>>(
+      `${apiGateWay}/v2/ticket/update-tickets`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cookie.value}`,
+        },
+        body: data
+      }
+    );
+  } catch (error) {
+    console.error("API Error:", error);
+    throw error;
+  }
+};
+
+export const cancelTickets = async (
+  data: CancelTicketType
+): Promise<ApiResponse<TicketType[]>> => {
+  const config = useRuntimeConfig();
+  const apiGateWay = config.public.apiGateWay;
+  const cookie = useCookie("access_token");
+  try {
+    return await $fetch<ApiResponse<TicketType[]>>(
+      `${apiGateWay}/v2/ticket/cancel-tickets`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cookie.value}`,
+        },
+        body: data
+      }
+    );
+  } catch (error) {
+    console.error("API Error:", error);
+    throw error;
+  }
+}
+

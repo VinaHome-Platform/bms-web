@@ -16,6 +16,5 @@ onMounted(async () => {
         <section class="p-2 mt-[60px]">
             <slot />
         </section>
-
     </div>
 </template>

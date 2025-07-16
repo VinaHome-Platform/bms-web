@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Calendar from '~/components/widgets/Calendar.vue';
 import {
-  ArrowUpBold, ArrowRightBold
+  ArrowUpBold, ArrowRightBold, CloseBold, Delete, Rank, Edit
 } from '@element-plus/icons-vue'
 import type { CollapseModelValue, TabsPaneContext } from 'element-plus'
 import TicketItem from '~/components/widgets/TicketItem.vue';
@@ -12,15 +12,17 @@ import type { DTO_RP_ListRouteName } from '~/types/routeType';
 import { getListTripByRouteAndDate } from '~/api/tripAPI';
 import { startOfDay, format } from 'date-fns';
 import type { TripType } from '~/types/tripType';
-import { getListTicketsByTrip } from '~/api/ticketAPI';
-import type { TicketType } from '~/types/ticketType';
+import { cancelTickets, getListTicketsByTrip, updateTickets } from '~/api/ticketAPI';
+import type { CancelTicketType, TicketPayloadUpdate, TicketType } from '~/types/ticketType';
 import { useFirebase } from '~/composables/useFirebase';
-import { get, remove } from 'firebase/database';
+import { get, remove, update } from 'firebase/database';
+import EditTicketDialog from '~/components/widgets/EditTicketDialog.vue';
 
 const { db, ref: dbRef, set, onValue, off } = useFirebase()
 
 const companyStore = useCompanyStore();
 const authStore = useAuthStore();
+const officeStore = useOfficeStore();
 const routeNames = ref<DTO_RP_ListRouteName[]>([]);
 const loadingListRouteName = ref(false);
 const loadingListTrip = ref(false);
@@ -28,6 +30,35 @@ const tripList = ref<TripType[]>([]);
 const selectedTrip = ref<TripType | null>(null);
 const selectedTickets = ref<TicketType[]>([]);
 const ticketList = ref<TicketType[]>([]);
+const getFloorSeats = (floor: number) => {
+  const floorTickets = ticketList.value.filter(ticket => ticket.seat_floor === floor);
+  const rows = new Map();
+
+  floorTickets.forEach(ticket => {
+    const rowNumber = ticket.seat_row;
+    if (!rows.has(rowNumber)) {
+      rows.set(rowNumber, []);
+    }
+    rows.get(rowNumber).push(ticket);
+  });
+
+  // Sort rows by row number and seats by column
+  const sortedRows = Array.from(rows.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([rowNumber, seats]) => ({
+      rowNumber,
+      seats: seats.sort((a: TicketType, b: TicketType) => a.seat_column - b.seat_column)
+    }));
+
+  return sortedRows;
+}
+
+const getAvailableFloors = () => {
+  const floors = [...new Set(ticketList.value.map(ticket => ticket.seat_floor))];
+  return floors.sort((a, b) => a - b);
+}
+
+
 const fetchListRouteName = async () => {
   loadingListRouteName.value = true;
   try {
@@ -142,34 +173,6 @@ const fetchListTicketByTrip = async (id: number) => {
 };
 
 
-const getFloorSeats = (floor: number) => {
-  const floorTickets = ticketList.value.filter(ticket => ticket.seat_floor === floor);
-  const rows = new Map();
-
-  floorTickets.forEach(ticket => {
-    const rowNumber = ticket.seat_row;
-    if (!rows.has(rowNumber)) {
-      rows.set(rowNumber, []);
-    }
-    rows.get(rowNumber).push(ticket);
-  });
-
-  // Sort rows by row number and seats by column
-  const sortedRows = Array.from(rows.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([rowNumber, seats]) => ({
-      rowNumber,
-      seats: seats.sort((a: TicketType, b: TicketType) => a.seat_column - b.seat_column)
-    }));
-
-  return sortedRows;
-}
-
-const getAvailableFloors = () => {
-  const floors = [...new Set(ticketList.value.map(ticket => ticket.seat_floor))];
-  return floors.sort((a, b) => a - b);
-}
-
 
 
 
@@ -186,52 +189,143 @@ async function handleTripSelected(trip: TripType) {
 
 
 const handleTicketClick = async (ticket: TicketType) => {
-  if (!selectedTrip.value?.id) return
+  if (!selectedTrip.value?.id || !authStore.full_name) return;
 
-  const tripId = selectedTrip.value.id
-  const ticketPath = `selectedTickets/${tripId}/${ticket.id}`
-  const index = selectedTickets.value.findIndex(t => t.id === ticket.id)
+  const tripId = selectedTrip.value.id;
+  const ticketPath = `selectedTickets/${tripId}/${ticket.id}`;
+  const currentUser = authStore.full_name;
+
+  // Lấy danh sách vé ĐÃ CHỌN bởi user hiện tại
+  const userSelectedTickets = selectedTickets.value.filter(
+    t => t.selectedBy === currentUser
+  );
+  const index = userSelectedTickets.findIndex(t => t.id === ticket.id);
 
   try {
     if (index === -1) {
-      // Chọn vé => thêm vào Firebase
-      await set(dbRef(db, ticketPath), authStore.full_name || '')
+      // 🔹 1. Nếu vé đang chọn là vé KHÔNG CÓ SỐ ĐIỆN THOẠI (hoặc chưa đặt)
+      if (!ticket.booked_status || !ticket.ticket_phone?.trim()) {
+        // Kiểm tra xem user có đang chọn vé CÓ SỐ ĐIỆN THOẠI không
+        const hasBookedTicketWithPhone = userSelectedTickets.some(
+          t => t.booked_status && t.ticket_phone?.trim()
+        );
+
+        // Nếu có => BỎ CHỌN TẤT CẢ VÉ CÓ SỐ ĐIỆN THOẠI trước khi chọn vé mới
+        if (hasBookedTicketWithPhone) {
+          for (const selectedTicket of userSelectedTickets) {
+            if (selectedTicket.booked_status && selectedTicket.ticket_phone?.trim()) {
+              await remove(dbRef(db, `selectedTickets/${tripId}/${selectedTicket.id}`));
+            }
+          }
+        }
+
+        // Cho phép chọn vé KHÔNG CÓ SỐ ĐIỆN THOẠI (không giới hạn số lượng)
+        await set(dbRef(db, ticketPath), currentUser);
+      }
+      // 🔹 2. Nếu vé đang chọn là vé CÓ SỐ ĐIỆN THOẠI (đã đặt)
+      else {
+        // Kiểm tra xem user có đang chọn vé KHÔNG CÓ SỐ ĐIỆN THOẠI không
+        const hasUnbookedTicket = userSelectedTickets.some(
+          t => !t.booked_status || !t.ticket_phone?.trim()
+        );
+
+        // Nếu có => BỎ CHỌN TẤT CẢ VÉ CŨ (cả vé không số ĐT và vé có số ĐT khác)
+        if (hasUnbookedTicket) {
+          for (const selectedTicket of userSelectedTickets) {
+            await remove(dbRef(db, `selectedTickets/${tripId}/${selectedTicket.id}`));
+          }
+        }
+
+        // Chọn vé hiện tại (có số điện thoại)
+        await set(dbRef(db, ticketPath), currentUser);
+
+        // Tự động chọn các vé CÙNG SỐ ĐIỆN THOẠI (nếu có)
+        const ticketsToAutoSelect = ticketList.value.filter(t =>
+          t.ticket_phone === ticket.ticket_phone &&
+          t.id !== ticket.id &&
+          t.booked_status === true &&
+          !selectedTickets.value.some(selected => selected.id === t.id)
+        );
+
+        for (const relatedTicket of ticketsToAutoSelect) {
+          await set(dbRef(db, `selectedTickets/${tripId}/${relatedTicket.id}`), currentUser);
+        }
+      }
     } else {
-      // Bỏ chọn vé => xóa khỏi Firebase
-      await remove(dbRef(db, ticketPath))
+      // 🔹 3. Nếu đang BỎ CHỌN vé (chỉ xóa nếu vé thuộc về user hiện tại)
+      const ticketToRemove = selectedTickets.value.find(t => t.id === ticket.id);
+      if (ticketToRemove?.selectedBy === currentUser) {
+        await remove(dbRef(db, ticketPath));
+      }
     }
   } catch (error) {
-    console.error('Lỗi cập nhật Firebase:', error)
+    console.error('Lỗi cập nhật Firebase:', error);
   }
-}
+};
 const isTicketSelected = (ticket: TicketType) => {
   return selectedTickets.value.some(t => t.id === ticket.id);
 };
 
 
 const setupRealtimeListener = (tripId: number) => {
-  const ticketRef = dbRef(db, `selectedTickets/${tripId}`)
-
+  // Listener cho vé được chọn
+  const ticketRef = dbRef(db, `selectedTickets/${tripId}`);
   onValue(ticketRef, (snapshot) => {
-    const data = snapshot.val()
-    const selected: TicketType[] = []
+    const data = snapshot.val();
+    const selected: TicketType[] = [];
 
     if (data && ticketList.value.length > 0) {
       for (const [ticketIdStr, userName] of Object.entries(data)) {
-        const ticket = ticketList.value.find(t => t.id === Number(ticketIdStr))
+        const ticket = ticketList.value.find(t => t.id === Number(ticketIdStr));
         if (ticket) {
           selected.push({
             ...ticket,
             selectedBy: typeof userName === 'string' ? userName : undefined
-          })
+          });
         }
       }
     }
+    selectedTickets.value = selected;
+  });
 
-    selectedTickets.value = selected
-    console.log('Danh sách vé được cập nhật:', selected)
-  })
-}
+  // Listener cho thông tin vé
+  onValue(dbRef(db, `tickets/${tripId}`), (snapshot) => {
+    const updatedTickets = snapshot.val();
+    if (!updatedTickets) return;
+
+    // Cập nhật danh sách vé local
+    ticketList.value = ticketList.value.map(ticket => {
+      const updatedData = updatedTickets[ticket.id];
+      return updatedData ? { ...ticket, ...updatedData } : ticket;
+    });
+
+    console.log("🔄 Đã cập nhật vé từ Firebase");
+  });
+};
+const syncTicketsToFirebase = async (tripId: number, ticketIds: number[], updatedFields: Partial<TicketType>) => {
+  try {
+    const updates: Record<string, unknown> = {};
+    const timestamp = Date.now();
+
+    // Loại bỏ các giá trị undefined
+    const sanitizedFields = Object.fromEntries(
+      Object.entries(updatedFields).filter(([_, v]) => v !== undefined)
+    );
+
+    ticketIds.forEach(ticketId => {
+      updates[`tickets/${tripId}/${ticketId}`] = {
+        ...sanitizedFields, // Sử dụng object đã được làm sạch
+        updatedAt: timestamp,
+        updatedBy: authStore.full_name || 'unknown'
+      };
+    });
+
+    await update(dbRef(db), updates);
+  } catch (error) {
+    console.error('Lỗi đồng bộ Firebase:', error);
+  }
+};
+
 const handleClickTabs = async (tab: TabsPaneContext, event: Event) => {
   console.log(tab, event)
   console.log('Tab được click:', tab.props.name);
@@ -240,6 +334,7 @@ const handleClickTabs = async (tab: TabsPaneContext, event: Event) => {
     if (selectedTrip.value?.id) {
       // 1. Gọi API lấy danh sách vé
       await fetchListTicketByTrip(selectedTrip.value.id);
+      await remove(dbRef(db, `selectedTickets/${selectedTrip.value.id}`));
 
       // 2. Ép cập nhật lại selectedTickets từ Firebase
       setupRealtimeListener(selectedTrip.value.id);
@@ -259,32 +354,246 @@ const getTicketSelector = (ticket: TicketType) => {
   return found?.selectedBy || null;
 };
 watch(selectedTrip, async (newTrip, oldTrip) => {
+  // Dọn dẹp listener và dữ liệu cũ
   if (oldTrip?.id) {
-    // 1. Hủy lắng nghe trip cũ
-    off(dbRef(db, `selectedTickets/${oldTrip.id}`));
-
-    // 2. Xóa các vé do người dùng hiện tại đã chọn trên trip cũ
-    const ticketRef = dbRef(db, `selectedTickets/${oldTrip.id}`);
-    const snapshot = await get(ticketRef);
-    const data = snapshot.val();
-
-    if (data) {
-      for (const [ticketId, userName] of Object.entries(data)) {
-        if (userName === authStore.full_name) {
-          await remove(dbRef(db, `selectedTickets/${oldTrip.id}/${ticketId}`));
-        }
-      }
-    }
+    await cleanupTripData(oldTrip.id);
   }
 
+  // Thiết lập listener mới
   if (newTrip?.id) {
-    // 3. Thiết lập lắng nghe trip mới
     setupRealtimeListener(newTrip.id);
   }
+});
+const cleanupTripData = async (tripId: number) => {
+  try {
+    // 1. Hủy tất cả listeners
+    off(dbRef(db, `selectedTickets/${tripId}`));
+    off(dbRef(db, `tickets/${tripId}`));
+
+    // 2. Xóa các vé đang chọn của user hiện tại
+    const cleanupPromises: Promise<void>[] = [];
+
+    // a. Xóa selectedTickets
+    const selectedTicketsSnapshot = await get(dbRef(db, `selectedTickets/${tripId}`));
+    if (selectedTicketsSnapshot.exists()) {
+      const selectedUpdates: Record<string, null> = {};
+      Object.entries(selectedTicketsSnapshot.val()).forEach(([ticketId, userName]) => {
+        if (userName === authStore.full_name) {
+          selectedUpdates[`selectedTickets/${tripId}/${ticketId}`] = null;
+        }
+      });
+
+      if (Object.keys(selectedUpdates).length > 0) {
+        cleanupPromises.push(update(dbRef(db), selectedUpdates));
+      }
+    }
+
+    // b. Xóa tickets cũ (chỉ xóa những vé do user hiện tại cập nhật)
+    const ticketsSnapshot = await get(dbRef(db, `tickets/${tripId}`));
+    if (ticketsSnapshot.exists()) {
+      const ticketUpdates: Record<string, null> = {};
+      Object.entries(ticketsSnapshot.val()).forEach(([ticketId, ticketData]) => {
+        const data = ticketData as { updatedBy?: string };
+        if (data.updatedBy === authStore.full_name) {
+          ticketUpdates[`tickets/${tripId}/${ticketId}`] = null;
+        }
+      });
+
+      if (Object.keys(ticketUpdates).length > 0) {
+        cleanupPromises.push(update(dbRef(db), ticketUpdates));
+      }
+    }
+
+    // Thực hiện tất cả các thao tác xóa cùng lúc
+    await Promise.all(cleanupPromises);
+
+    console.log(`✅ Đã dọn dẹp toàn bộ dữ liệu cho chuyến ${tripId}`);
+  } catch (error) {
+    console.error(`❌ Lỗi khi dọn dẹp chuyến ${tripId}:`, error);
+    throw error; // Ném lỗi để bên gọi có thể xử lý
+  }
+};
+const mySelectedTickets = computed(() => {
+  return selectedTickets.value.filter(
+    t => t.selectedBy === authStore.full_name
+  );
 });
 
 
 
+async function clearAllSelectedTickets() {
+  if (!selectedTrip.value?.id) return;
+
+  const tripId = selectedTrip.value.id;
+
+  // Lấy danh sách vé đang được chọn bởi user hiện tại
+  const myTickets = selectedTickets.value.filter(t => t.selectedBy === authStore.full_name);
+
+  try {
+    // Xóa từng vé khỏi Firebase
+    for (const ticket of myTickets) {
+      await remove(dbRef(db, `selectedTickets/${tripId}/${ticket.id}`));
+    }
+
+    // Cập nhật local state
+    selectedTickets.value = selectedTickets.value.filter(
+      t => t.selectedBy !== authStore.full_name
+    );
+  } catch (error) {
+    console.error('Lỗi khi bỏ chọn vé khỏi Firebase:', error);
+    ElNotification({
+      message: h('p', { style: 'color: red' }, 'Đã xảy ra lỗi khi bỏ chọn vé!'),
+      type: 'error',
+    });
+  }
+}
+
+
+const dialogFormEditTicket = ref(false)
+const handleOpenFormEditTicket = () => {
+  dialogFormEditTicket.value = true;
+}
+const updatingTicketIds = ref<Set<number>>(new Set());
+const loadingItemTicket = ref(false);
+// [FEAT]: Update ticket
+const handleUpdateTickets = async (tickets: TicketPayloadUpdate) => {
+  console.log('Cập nhật vé:', tickets);
+  loadingItemTicket.value = true;
+  tickets.id.forEach(id => updatingTicketIds.value.add(id));
+  try {
+    const response = await updateTickets(tickets);
+    if (response.result) {
+
+      const updatedIds = new Set(tickets.id);
+      const { id, ...rest } = tickets;
+
+      ticketList.value = ticketList.value.map(ticket => {
+        if (updatedIds.has(ticket.id)) {
+          return { ...ticket, ...rest, booked_status: true };
+        }
+        return ticket;
+      });
+
+      if (selectedTrip.value?.id) {
+        const { id, ...ticketFields } = tickets;
+        await syncTicketsToFirebase(
+          selectedTrip.value!.id,
+          tickets.id,
+          { ...ticketFields, booked_status: true }
+        );
+      }
+      ElNotification({
+        message: h('p', { style: 'color: green' }, 'Cập nhật vé thành công!'),
+        type: 'success',
+      });
+    } else {
+      ElNotification({
+        message: h('p', { style: 'color: red' }, 'Cập nhật vé thất bại!'),
+        type: 'error',
+      });
+    }
+  } catch (error) {
+    console.error('Lỗi khi cập nhật vé:', error);
+    ElNotification({
+      message: h('p', { style: 'color: red' }, 'Đã xảy ra lỗi khi cập nhật vé!'),
+      type: 'error',
+    });
+  } finally {
+    loadingItemTicket.value = false;
+    updatingTicketIds.value.clear();
+  }
+};
+
+// [FEAT]: Cancel ticket
+const handleCancelTickets = async (tickets: CancelTicketType) => {
+  console.log('Hủy vé:', tickets);
+
+  // Validate input
+  if (!tickets || !tickets.id || !Array.isArray(tickets.id) || tickets.id.length === 0) {
+    console.error('Invalid tickets data:', tickets);
+    ElNotification({
+      message: h('p', { style: 'color: red' }, 'Dữ liệu vé không hợp lệ!'),
+      type: 'error',
+    });
+    return;
+  }
+
+  loadingItemTicket.value = true;
+
+  // Add ticket IDs to updating set
+  tickets.id.forEach(id => updatingTicketIds.value.add(id));
+
+  try {
+    const response = await cancelTickets(tickets);
+    if (response.result) {
+      ticketList.value = ticketList.value.map(ticket => {
+        if (tickets.id.includes(ticket.id)) {
+          return {
+            ...ticket,
+            ticket_phone: ticket.ticket_phone || '',
+            ticket_email: ticket.ticket_email || '',
+            ticket_customer_name: ticket.ticket_customer_name || '',
+            ticket_point_up: ticket.ticket_point_up || '',
+            ticket_point_down: ticket.ticket_point_down || '',
+            ticket_note: ticket.ticket_note || '',
+            ticket_display_price: ticket.ticket_display_price || 0,
+            booked_status: false,
+          };
+        }
+        return ticket;
+      });
+
+      // Clear selected tickets that were cancelled
+      if (selectedTrip.value?.id) {
+        const ticketsToSync = ticketList.value.filter(ticket => tickets.id.includes(ticket.id));
+        await syncTicketsToFirebase(
+          selectedTrip.value!.id,
+          tickets.id,
+          {
+            ticket_phone: '',
+            ticket_email: '',
+            ticket_customer_name: '',
+            ticket_point_up: '',
+            ticket_point_down: '',
+            ticket_note: '',
+            ticket_display_price: ticketsToSync[0]?.ticket_display_price || 0,
+            booked_status: false,
+          }
+        );
+        const tripId = selectedTrip.value.id;
+        for (const ticketId of tickets.id) {
+          await remove(dbRef(db, `selectedTickets/${tripId}/${ticketId}`));
+          await remove(dbRef(db, `tickets/${tripId}/${ticketId}`));
+        }
+        
+      }
+
+      ElNotification({
+        message: h('p', { style: 'color: green' }, 'Hủy vé thành công!'),
+        type: 'success',
+      });
+    } else {
+      ElNotification({
+        message: h('p', { style: 'color: red' }, 'Hủy vé thất bại!'),
+        type: 'error',
+      });
+    }
+  } catch (error) {
+    console.error('Lỗi khi hủy vé:', error);
+    ElNotification({
+      message: h('p', { style: 'color: red' }, 'Đã xảy ra lỗi khi hủy vé!'),
+      type: 'error',
+    });
+  } finally {
+    loadingItemTicket.value = false;
+    updatingTicketIds.value.clear();
+  }
+};
+
+
+const isTicketUpdating = (ticketId: number) => {
+  return updatingTicketIds.value.has(ticketId);
+};
 watch([valueSelectedDate, valueSelectedRoute], ([newDate, newRoute], [oldDate, oldRoute]) => {
   console.log('Ngày:', oldDate, '=>', newDate);
   console.log('Tuyến:', oldRoute, '=>', newRoute);
@@ -295,6 +604,7 @@ watch([valueSelectedDate, valueSelectedRoute], ([newDate, newRoute], [oldDate, o
 onMounted(() => {
   authStore.loadUserInfo();
   companyStore.loadCompanyStore();
+  officeStore.loadOfficeStore();
   fetchListRouteName();
 });
 </script>
@@ -453,12 +763,62 @@ onMounted(() => {
                               class="grid gap-1 w-full"
                               :style="{ gridTemplateColumns: `repeat(${row.seats.length}, 1fr)` }">
                               <TicketItem v-for="seat in row.seats" :key="seat.id" :ticket="seat"
-                                :onClick="() => handleTicketClick(seat)" :isSelected="isTicketSelected(seat)" :selectedBy="getTicketSelector(seat)"/>
+                                :onClick="() => handleTicketClick(seat)" :isSelected="isTicketSelected(seat)"
+                                :selectedBy="getTicketSelector(seat)" :isLoading="isTicketUpdating(seat.id)" />
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
+
+                    <div v-if="mySelectedTickets.length > 0"
+                      class="fixed bottom-2 left-1/2 transform -translate-x-1/2 w-[90%] max-w-5xl bg-white border border-gray-300 shadow-md transition-transform duration-300 z-50 rounded-xl">
+                      <div class="flex items-stretch justify-between gap-4 h-full">
+                        <div
+                          class="bg-gray-100 px-4 py-2 rounded-l-xl text-sm font-medium text-gray-700 flex items-center justify-center flex-shrink-0">
+                          <div class="flex items-center gap-x-2">
+                            <el-icon @click="clearAllSelectedTickets"
+                              class="cursor-pointer hover:text-red-500 transition">
+                              <CloseBold />
+                            </el-icon>
+                            <span class="text-[16px]">
+                              Số vé đang chọn:
+                              <span class="text-[#FF9900]">{{ mySelectedTickets.length }}</span>
+                            </span>
+                          </div>
+                        </div>
+                        <div
+                          class=" px-4 py-3 text-sm text-blue-800 flex-1 flex flex-wrap gap-2 items-center rounded-none overflow-hidden">
+                          <el-tag v-for="ticket in mySelectedTickets" :key="ticket.id" type="warning" effect="dark">
+                            <span class="text-[15px]">{{ ticket.seat_name }}</span>
+                          </el-tag>
+                        </div>
+                        <div
+                          class="bg-purple-50 px-4 py-2 rounded-r-xl flex gap-2 items-center justify-center flex-shrink-0">
+                          <div>
+                            <el-tooltip content="Cập nhật thông tin vé" placement="top">
+                              <el-button type="warning" :icon="Edit" circle @click="handleOpenFormEditTicket" />
+                            </el-tooltip>
+                          </div>
+                          <div v-if="mySelectedTickets.filter(t => t.booked_status === true).length > 0">
+                            <el-tooltip content="Di chuyển vé" placement="top">
+                              <el-button type="primary" :icon="Rank" circle />
+                            </el-tooltip>
+                          </div>
+                          <div v-if="mySelectedTickets.filter(t => t.booked_status === true).length > 0">
+                            <el-tooltip content="Hủy vé" placement="top">
+                              <el-button type="danger" :icon="Delete" circle
+                                @click="handleCancelTickets({ id: mySelectedTickets.filter(t => t.booked_status === true).map(t => t.id) })" />
+                            </el-tooltip>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+
+
+
+
                   </div>
                 </el-tab-pane>
                 <el-tab-pane label="Hành khách" name="2">Hành khách</el-tab-pane>
@@ -471,8 +831,11 @@ onMounted(() => {
         </el-main>
       </el-container>
     </el-container>
-
+    <EditTicketDialog v-model="dialogFormEditTicket" :selected-tickets="mySelectedTickets"
+      :user-name="authStore.full_name" :office-name="officeStore.name" @closed="clearAllSelectedTickets"
+      @update-tickets="handleUpdateTickets" @cancel-tickets="handleCancelTickets"/>
   </section>
+
 </template>
 <style scoped>
 .el-header {
