@@ -6,7 +6,7 @@ import InputNumber from '~/components/inputs/inputNumber.vue';
 import {
     Plus, Delete, Edit
 } from '@element-plus/icons-vue'
-import { createAgent } from '~/api/agentAPI';
+import { createAgent, deleteAgent, getListAgentByCompany, updateAgent } from '~/api/agentAPI';
 definePageMeta({
     layout: 'default',
 })
@@ -15,7 +15,7 @@ const authStore = useAuthStore();
 const drawer = ref(false)
 const direction = ref<DrawerProps['direction']>('rtl')
 const isEditMode = ref(false)
-const currentEditId = ref<number | null>(null);
+const currentEditId = ref<string | null>(null);
 const loading = ref(false);
 const agents = ref<AgentType[]>([]);
 const ruleFormRef = ref<FormInstance>()
@@ -24,7 +24,7 @@ const ruleForm = ref<AgentType>({
     id: null,
     full_name: null,
     code: null,
-    number_phone: null,
+    phone_number: null,
     note: null,
     address: null,
     username: null,
@@ -33,6 +33,10 @@ const ruleForm = ref<AgentType>({
     email: null,
     company_code: companyStore.code,
     company_id: companyStore.id,
+    discount_ticket_type: '%',
+    discount_ticket_value: 0,
+    discount_goods_type: '%',
+    discount_goods_value: 0,
 })
 const rules: FormRules = {
     full_name: [
@@ -41,17 +45,24 @@ const rules: FormRules = {
     code: [
         { required: true, message: 'Vui lòng nhập mã đại lý', trigger: 'blur' },
     ],
-    number_phone: [
+    phone_number: [
         { required: true, message: 'Vui lòng nhập số điện thoại', trigger: 'blur' },
         { pattern: /^0[0-9]{9}$/, message: 'Số điện thoại không hợp lệ', trigger: 'blur' }
     ],
-    username: [
+    username: isEditMode.value ? [] : [
         { required: true, message: 'Vui lòng nhập tài khoản', trigger: 'blur' },
     ],
-    password: [
+    password: isEditMode.value ? [] : [
         { required: true, message: 'Vui lòng nhập mật khẩu', trigger: 'blur' },
     ],
 }
+const handleEdit = (index: number, row: AgentType) => {
+    console.log('handleEdit', row);
+    isEditMode.value = true;
+    currentEditId.value = row.id;
+    ruleForm.value = { ...row };
+    drawer.value = true;
+};
 const resetForm = (formEl: FormInstance | undefined) => {
     if (!formEl) return
     formEl.resetFields()
@@ -69,14 +80,15 @@ const filterTableData = computed(() =>
             (data.full_name ?? '').toLowerCase().includes(search.value.toLowerCase())
     )
 )
+
 const handleAdd = () => {
     isEditMode.value = false;
     currentEditId.value = null;
-    Object.assign(ruleForm, {
+    ruleForm.value = {
         id: null,
         full_name: null,
         code: null,
-        number_phone: null,
+        phone_number: null,
         note: null,
         address: null,
         username: null,
@@ -85,15 +97,14 @@ const handleAdd = () => {
         email: null,
         company_code: companyStore.code,
         company_id: companyStore.id,
-    });
+        discount_ticket_type: '%',
+        discount_ticket_value: 0,
+        discount_goods_type: '%',
+        discount_goods_value: 0,
+    };
     drawer.value = true;
 };
-const handleEdit = (index: number, row: AgentType) => {
-    isEditMode.value = true;
-    currentEditId.value = row.id;
-    Object.assign(ruleForm, { ...row });
-    drawer.value = true;
-};
+
 const handleDelete = async (index: number, row: AgentType) => {
     loading.value = true;
     try {
@@ -134,20 +145,20 @@ const submitForm = async (formEl: FormInstance | undefined) => {
                 if (isEditMode.value && currentEditId.value !== null) {
 
                     console.log(ruleForm);
-                    // const response = await updateEmployee(currentEditId.value, ruleForm);
-                    // if (response.success) {
-                    //     ElNotification({
-                    //         message: h('p', { style: 'color: teal' }, 'Cập nhật tài khoản thành công!'),
-                    //         type: 'success',
-                    //     })
-                    //     const index = employees.value.findIndex(employee => employee.id === currentEditId.value);
-                    //     if (index !== -1) {
-                    //         employees.value[ index ] = {
-                    //             ...employees.value[ index ],
-                    //             ...ruleForm
-                    //         };
-                    //     }
-                    // }
+                    const response = await updateAgent(currentEditId.value, ruleForm.value);
+                    if (response.success) {
+                        ElNotification({
+                            message: h('p', { style: 'color: teal' }, 'Cập nhật đại lý thành công!'),
+                            type: 'success',
+                        })
+                        const index = agents.value.findIndex(agent => agent.id === currentEditId.value);
+                        if (index !== -1) {
+                            agents.value[index] = {
+                                ...agents.value[index],
+                                ...ruleForm.value
+                            };
+                        }
+                    }
                 } else {
                     console.log(ruleForm);
                     const response = await createAgent(ruleForm.value);
@@ -158,6 +169,11 @@ const submitForm = async (formEl: FormInstance | undefined) => {
                         })
                         if (response.result) {
                             agents.value.push(response.result);
+                        } else {
+                            ElNotification({
+                                message: h('p', { style: 'color: red' }, response.message || 'Thêm đại lý thất bại!'),
+                                type: 'error',
+                            });
                         }
                     }
                 }
@@ -181,9 +197,32 @@ const submitForm = async (formEl: FormInstance | undefined) => {
         }
     });
 };
+const fetchListAgent = async () => {
+    loading.value = true;
+    try {
+        const response = await getListAgentByCompany(Number(companyStore.id));
+        if (response.result) {
+            agents.value = response.result || [];
+        } else {
+            ElNotification({
+                message: h('p', { style: 'color: red' }, response.message || 'Lấy danh sách đại lý thất bại!'),
+                type: 'error',
+            });
+        }
+    } catch (error) {
+        ElNotification({
+            message: h('p', { style: 'color: red' }, 'Đã xảy ra lỗi khi lấy danh sách đại lý!'),
+            type: 'error',
+        });
+        console.error(error);
+    } finally {
+        loading.value = false;
+    }
+};
 onMounted(() => {
     companyStore.loadCompanyStore();
     authStore.loadUserInfo();
+    fetchListAgent();
 });
 </script>
 <template>
@@ -196,8 +235,8 @@ onMounted(() => {
             style="width: 100%">
             <el-table-column type="index" label="STT" width="50" />
             <el-table-column label="Tên đại lý" prop="full_name" />
-            <el-table-column label="Số điện thoại" prop="number_phone" />
-
+            <el-table-column label="Tài khoản" prop="username" />
+            <el-table-column label="Số điện thoại" prop="phone_number" />
             <el-table-column label="Trạng thái" prop="status">
                 <template #default="scope">
                     <el-tag :type="scope.row.status ? 'success' : 'danger'">
@@ -205,7 +244,16 @@ onMounted(() => {
                     </el-tag>
                 </template>
             </el-table-column>
-
+            <el-table-column label="Chiết khấu vé">
+                <template #default="scope">
+                    <span>{{ scope.row.discount_ticket_value }} ({{ scope.row.discount_ticket_type }})</span>
+                </template>
+            </el-table-column>
+            <el-table-column label="Chiết khấu hàng hóa">
+                <template #default="scope">
+                    <span>{{ scope.row.discount_goods_value }} ({{ scope.row.discount_goods_type }})</span>
+                </template>
+            </el-table-column>
             <el-table-column label="Ghi chú" prop="note" />
             <el-table-column align="right">
                 <template #header>
@@ -214,7 +262,6 @@ onMounted(() => {
                 <template #default="scope">
                     <el-button type="primary" :icon="Edit" circle @click="handleEdit(scope.$index, scope.row)" />
                     <el-button circle type="danger" :icon="Delete" @click="handleDelete(scope.$index, scope.row)" />
-
                 </template>
             </el-table-column>
         </el-table>
@@ -222,20 +269,22 @@ onMounted(() => {
         <el-drawer v-model="drawer" :direction="direction" :before-close="cancelClick" size="50%">
             <template #header>
                 <div class="font-semibold text-lg text-black">{{ isEditMode ? 'Chỉnh sửa đại lý' : 'Thêm đại lý'
-                }}</div>
+                    }}</div>
             </template>
             <template #default>
-
                 <el-form ref="ruleFormRef" :model="ruleForm" :rules="rules" label-width="auto">
                     <el-row>
                         <el-col :span="12" class="pr-5">
                             <h2 class="text-gray-500 font-medium mb-5">THÔNG TIN ĐẠI LÝ</h2>
                             <InputText v-model="ruleForm.full_name" prop="full_name" label="Tên đại lý" />
-                            <InputText v-model="ruleForm.username" prop="username" label="Tài khoản" />
-                            <InputText v-model="ruleForm.password" prop="password" label="Mật khẩu" />
+                            <InputText v-if="!isEditMode" v-model="ruleForm.username" prop="username"
+                                label="Tài khoản" />
+                            <InputText v-if="!isEditMode" v-model="ruleForm.password" prop="password"
+                                label="Mật khẩu" />
                             <InputText v-model="ruleForm.code" prop="code" label="Mã đại lý" />
-                            <InputText v-model="ruleForm.number_phone" prop="number_phone"
+                            <InputText v-model="ruleForm.phone_number" prop="phone_number"
                                 label="Số điện thoại liên lạc" />
+                            <InputText v-model="ruleForm.email" prop="email" label="Email" />
                             <InputText v-model="ruleForm.address" prop="address" label="Địa chỉ" />
                             <InputText v-model="ruleForm.note" prop="note" label="Ghi chú" />
                             <el-form-item prop="status" label-position="top">
@@ -248,6 +297,52 @@ onMounted(() => {
                         </el-col>
                         <el-col :span="12" class="pl-5">
                             <h2 class="text-gray-500 font-medium mb-5">CHÍNH SÁCH CHIẾT KHẤU</h2>
+                            <div class="mb-6">
+                                <InputNumber v-model="ruleForm.discount_ticket_value" prop="discount_ticket_value"
+                                    label="Chiết khấu vé" class="w-full" />
+                                <form-item prop="discount_ticket_type" label-position="top" class="space-y-3">
+                                    <template #label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                                            Loại chiết khấu vé
+                                        </label>
+                                    </template>
+
+                                    <div class="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                                        <span class="text-sm font-medium text-gray-700 min-w-[80px]">
+                                            Theo số tiền (VNĐ)
+                                        </span>
+                                        <el-switch v-model="ruleForm.discount_ticket_type" size="large" active-value="%"
+                                            inactive-value="VND" active-text="Theo %" inactive-text="VNĐ" class="ml-4"
+                                            style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949" />
+                                        <span class="text-sm font-medium text-gray-700 min-w-[60px]">
+                                            Theo phần trăm (%)
+                                        </span>
+                                    </div>
+                                </form-item>
+                            </div>
+
+                            <div class="mb-6">
+                                <InputNumber v-model="ruleForm.discount_goods_value" prop="discount_goods_value"
+                                    label="Chiết khấu hàng hóa theo đơn" />
+                                <form-item prop="discount_goods_type" label-position="top" class="space-y-3">
+                                    <template #label>
+                                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                                            Loại chiết khấu hàng hóa
+                                        </label>
+                                    </template>
+                                    <div class="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+                                        <span class="text-sm font-medium text-gray-700 min-w-[80px]">
+                                            Theo số tiền (VNĐ)
+                                        </span>
+                                        <el-switch v-model="ruleForm.discount_goods_type" size="large" active-value="%"
+                                            inactive-value="VND" active-text="Theo %" inactive-text="VNĐ" class="ml-4"
+                                            style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949" />
+                                        <span class="text-sm font-medium text-gray-700 min-w-[60px]">
+                                            Theo phần trăm (%)
+                                        </span>
+                                    </div>
+                                </form-item>
+                            </div>
                         </el-col>
                     </el-row>
                 </el-form>
